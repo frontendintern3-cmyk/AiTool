@@ -1,0 +1,10 @@
+{$DOMAIN} {
+	reverse_proxy app:3000
+	encode gzip
+
+	# PDF/PPTX exports and Lighthouse runs can take a while — don't cut them off.
+	timeouts {
+		read_body 60s
+		read_header 10s
+	}
+}

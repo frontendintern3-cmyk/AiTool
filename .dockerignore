@@ -1,0 +1,11 @@
+node_modules
+.next
+prisma/dev.db
+prisma/dev.db-journal
+public/screenshots/*
+!public/screenshots/.gitkeep
+.git
+.env
+.env.local
+*.md
+.claude

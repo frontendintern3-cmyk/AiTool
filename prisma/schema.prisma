@@ -1,0 +1,264 @@
+// Prisma schema — SQLite for local dev, designed to be Postgres-portable
+// (no native arrays; enums are emulated as validated strings via zod in the app layer
+// since SQLite has no native enum type — switching `provider` to "postgresql" and
+// `DATABASE_URL` is the only change needed to move to Postgres).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+
+  audits Audit[]
+}
+
+model Website {
+  id        String   @id @default(cuid())
+  url       String
+  domain    String
+  createdAt DateTime @default(now())
+
+  audits Audit[]
+
+  @@index([domain])
+}
+
+// status: QUEUED | RUNNING | COMPLETED | FAILED
+model Audit {
+  id        String  @id @default(cuid())
+  websiteId String
+  website   Website @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?   @relation(fields: [userId], references: [id])
+
+  industry        String
+  businessName    String?
+  targetCountry   String?
+  targetCity      String?
+  targetAudience  String?
+  competitorUrls  Json? // string[] (max 3) — stored for Phase 2, not analyzed yet
+
+  status       String   @default("QUEUED")
+  currentStage String? // discovery | crawling | technical_seo | performance | on_page_seo | content | accessibility | security | scoring | recommendations | done
+  progress     Json? // { pagesDiscovered, pagesCrawled, issuesFound, critical, warnings, passed, stages: {...} }
+  moduleExtras Json? // per-category supplementary data, e.g. content.pageTypeCoverage, accessibility.pagesTested
+  errorMessage String?
+
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  // AI Analysis Layer output (section 35 of the spec): { status, model, generatedAt,
+  // executiveSummary, strengths[], businessImpactNote, seoImpactNote, leadImpactNote,
+  // errorMessage }. Narrative interpretation only — every specific claim it makes about
+  // the site is also turned into an AuditIssue with source="ai" and a verbatim quote,
+  // so it's traceable back to real crawled text rather than trusted blindly.
+  aiSummary Json?
+
+  // Best-effort logo URL detected from the homepage's <link rel="icon"|"apple-touch-icon">
+  // (or og:image as a fallback) — used for the audited site's logo in the PPTX export.
+  // Never fabricated: null if nothing was found, and the export step verifies the URL
+  // actually fetches a real image before embedding it.
+  siteLogoUrl String?
+
+  pages           Page[]
+  issues          AuditIssue[]
+  scores          AuditScore[]
+  performanceRuns PerformanceMetric[]
+  recommendations Recommendation[]
+  screenshots     Screenshot[]
+  competitors     Competitor[]
+
+  @@index([websiteId])
+  @@index([status])
+}
+
+model Page {
+  id      String @id @default(cuid())
+  auditId String
+  audit   Audit  @relation(fields: [auditId], references: [id], onDelete: Cascade)
+
+  url            String
+  pageType       String? // homepage | service | product | blog | category | location | contact | about | other
+  statusCode     Int?
+  title          String?
+  metaDescription String?
+  h1             Json? // string[]
+  h2             Json?
+  h3             Json?
+  wordCount      Int?
+  canonical      String?
+  robotsMeta     String?
+  hreflang       Json?
+  schemaTypes    Json? // string[] of detected schema.org @type values
+  ogTags         Json?
+  twitterTags    Json?
+  images         Json? // { src, alt, hasAlt }[]
+  internalLinks  Json? // { href, anchorText }[]
+  externalLinks  Json?
+  brokenLinks    Json?
+  redirectChain  Json?
+  responseTimeMs Int?
+  contentType    String?
+  isIndexable    Boolean?
+  contentHash    String? // for duplicate-content detection
+  renderedWithJs Boolean @default(false)
+  fetchError     String?
+  crawledAt      DateTime @default(now())
+
+  @@index([auditId])
+  @@index([auditId, contentHash])
+}
+
+// category: technical_seo | on_page_seo | content | accessibility | security | performance
+// severity: critical | warning | info
+// confidence: HIGH | MEDIUM | LOW | UNAVAILABLE
+// source: rule (deterministic check) | ai (LLM reading of crawled page text, quote-verified)
+model AuditIssue {
+  id      String @id @default(cuid())
+  auditId String
+  audit   Audit  @relation(fields: [auditId], references: [id], onDelete: Cascade)
+
+  category       String
+  checkId        String
+  title          String
+  description    String
+  whyItMatters   String
+  severity       String
+  affectedPages  Json? // page urls
+  affectedCount  Int      @default(0)
+  evidence       String
+  confidence     String   @default("MEDIUM")
+  source         String   @default("rule")
+  sourceQuotes   Json? // [{ url, quote }] — verbatim substrings confirmed present in the crawled page, for AI-sourced findings
+  createdAt      DateTime @default(now())
+
+  recommendations Recommendation[]
+
+  @@index([auditId])
+  @@index([auditId, category])
+  @@index([auditId, severity])
+}
+
+// category: technical_seo | performance | on_page_seo | content | accessibility | security | overall
+model AuditScore {
+  id      String @id @default(cuid())
+  auditId String
+  audit   Audit  @relation(fields: [auditId], references: [id], onDelete: Cascade)
+
+  category     String
+  score        Int? // 0-100, null if unavailable
+  weight       Float
+  passedCount  Int    @default(0)
+  warningCount Int    @default(0)
+  criticalCount Int   @default(0)
+  confidence   String @default("MEDIUM")
+  status       String @default("ok") // ok | partial | unavailable
+  notes        String?
+
+  @@unique([auditId, category])
+}
+
+// strategy: mobile | desktop
+// status: ok | unavailable
+model PerformanceMetric {
+  id      String @id @default(cuid())
+  auditId String
+  audit   Audit  @relation(fields: [auditId], references: [id], onDelete: Cascade)
+
+  pageUrl            String
+  strategy           String
+  status             String @default("ok")
+  errorMessage       String?
+  performanceScore   Int?
+  lcpMs              Float?
+  fcpMs              Float?
+  cls                Float?
+  inpMs              Float?
+  ttfbMs             Float?
+  speedIndexMs       Float?
+  totalBlockingTimeMs Float?
+  opportunities      Json?
+  source             String @default("lighthouse-local") // lighthouse-local | pagespeed-api
+  createdAt          DateTime @default(now())
+
+  @@index([auditId])
+}
+
+// priority: critical | high | medium | low
+// difficulty: easy | medium | hard
+model Recommendation {
+  id      String @id @default(cuid())
+  auditId String
+  audit   Audit  @relation(fields: [auditId], references: [id], onDelete: Cascade)
+
+  issueId String?
+  issue   AuditIssue? @relation(fields: [issueId], references: [id])
+
+  priority         String
+  category         String
+  title            String
+  evidence         String
+  recommendedAction String
+  businessImpact   String
+  seoImpact        String
+  difficulty       String
+  estimatedTime    String
+  expectedOutcome  String
+  isQuickWin       Boolean @default(false)
+  compositeScore   Float // severity x impact - effort, documented in lib/audit/recommendations
+  rank             Int?  // 1-25 for the Top 25 list, null otherwise
+  createdAt        DateTime @default(now())
+
+  @@index([auditId])
+  @@index([auditId, priority])
+}
+
+// viewport: desktop | mobile
+model Screenshot {
+  id      String @id @default(cuid())
+  auditId String
+  audit   Audit  @relation(fields: [auditId], references: [id], onDelete: Cascade)
+
+  label     String // e.g. "Homepage — Desktop"
+  pageUrl   String
+  viewport  String
+  path      String // public/ relative path, e.g. /screenshots/<auditId>/homepage-desktop.png
+  width     Int
+  height    Int
+  createdAt DateTime @default(now())
+
+  @@index([auditId])
+}
+
+// Homepage-only comparison for manually-supplied competitor URLs (spec §20: no
+// auto-discovery in this phase — never fabricate a metric we didn't fetch).
+// status: ok | unavailable
+model Competitor {
+  id      String @id @default(cuid())
+  auditId String
+  audit   Audit  @relation(fields: [auditId], references: [id], onDelete: Cascade)
+
+  url             String
+  status          String  @default("ok")
+  errorMessage    String?
+  title           String?
+  metaDescription String?
+  wordCount       Int?
+  httpsEnabled    Boolean?
+  hasSchema       Boolean?
+  h1Count         Int?
+  responseTimeMs  Int?
+  createdAt       DateTime @default(now())
+
+  @@index([auditId])
+}
