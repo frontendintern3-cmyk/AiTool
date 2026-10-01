@@ -16,24 +16,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 ENV BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
-ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV HOSTNAME="0.0.0.0"
 ENV PORT=3000
 
 WORKDIR /app
 
-# Install dependencies first for better layer caching.
+# Install dependencies for build (including Prisma CLI, TypeScript, Tailwind)
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm ci --include=dev
 
 COPY . .
 
-# Generate the Postgres Prisma Client (overrides whatever the SQLite dev
-# schema would have generated — see prisma-postgres/schema.prisma).
-RUN npx prisma generate --schema=prisma-postgres/schema.prisma
+# Generate the Postgres Prisma Client using local binary
+RUN ./node_modules/.bin/prisma generate --schema=prisma-postgres/schema.prisma
+
+# Fallback DATABASE_URL for build-time static checks
+ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
 
 RUN npm run build
+
+ENV NODE_ENV=production
 
 RUN mkdir -p /app/public/screenshots
 
