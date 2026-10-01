@@ -1,4 +1,4 @@
-﻿node.exe : npm notice run seo-audit-platform@0.1.0 npx
+node.exe : npm notice run seo-audit-platform@0.1.0 npx
 At line:1 char:1
 + & "C:\Program Files\nodejs/node.exe" "C:\Users\Prafu\AppData\Roaming\ ...
 + ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
