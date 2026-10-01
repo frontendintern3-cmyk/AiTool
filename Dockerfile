@@ -29,8 +29,13 @@ RUN npm ci --include=dev
 
 COPY . .
 
+# In production container, activate Postgres schema and migrations
+RUN cp prisma-postgres/schema.prisma prisma/schema.prisma && \
+    rm -rf prisma/migrations && \
+    cp -r prisma-postgres/migrations prisma/migrations
+
 # Generate the Postgres Prisma Client using local binary
-RUN ./node_modules/.bin/prisma generate --schema=prisma-postgres/schema.prisma
+RUN ./node_modules/.bin/prisma generate --schema=prisma/schema.prisma
 
 RUN npm run build
 
