@@ -19,6 +19,7 @@ ENV BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV HOSTNAME="0.0.0.0"
 ENV PORT=3000
+ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
 
 WORKDIR /app
 
@@ -30,9 +31,6 @@ COPY . .
 
 # Generate the Postgres Prisma Client using local binary
 RUN ./node_modules/.bin/prisma generate --schema=prisma-postgres/schema.prisma
-
-# Fallback DATABASE_URL for build-time static checks
-ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
 
 RUN npm run build
 
